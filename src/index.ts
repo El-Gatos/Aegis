@@ -3,6 +3,7 @@ import config from './config';
 import { Command } from './types/command';
 import fs from 'node:fs';
 import path from 'node:path';
+import { handleMessage } from './events/automod'; // <-- 1. IMPORT THE HANDLER
 
 // We are extending the base Client class to include a 'commands' property.
 class AegisClient extends Client {
@@ -49,6 +50,10 @@ loadCommands(commandsPath);
 client.once(Events.ClientReady, (readyClient) => {
     console.log(`✅ Logged in as ${readyClient.user.tag}`);
     console.log(`🚀 Aegis Guardian is online and ready to protect servers!`);
+});
+
+client.on(Events.MessageCreate, async message => {
+    await handleMessage(message);
 });
 
 client.on(Events.InteractionCreate, async interaction => {
