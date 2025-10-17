@@ -28,7 +28,7 @@ export const command: Command = {
                 .setDescription('The reason for muting the member')),
 
     async execute(interaction: ChatInputCommandInteraction) {
-        if (!interaction.guild) {
+        if (!interaction.guild || !interaction.guildId) { // Added guildId check for safety
             await interaction.reply({ content: 'This command can only be used in a server.', flags: [MessageFlags.Ephemeral] });
             return;
         }
@@ -87,32 +87,46 @@ export const command: Command = {
 
         // --- Execution ---
         try {
-            await target.send(`You have been muted in **${interaction.guild.name}** for "${durationString}" for the following reason: ${reason}`);
-        } catch (error) {
-            console.warn(`Could not send DM to ${target.user.tag}.`);
-        }
+            // Non-critical: Attempt to DM the user. We wrap this in its own
+            // try...catch so a failure here doesn't stop the whole command.
+            try {
+                await target.send(`You have been muted in **${interaction.guild.name}** for "${durationString}" for the following reason: ${reason}`);
+            } catch (dmError) {
+                console.warn(`Could not send DM to ${target.user.tag}.`);
+            }
 
-        try {
+            // Defer the reply to let Discord know we're working on it.
+            await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
+
+            // Critical Action 1: Mute the member.
             await target.timeout(durationMs, reason);
-            await interaction.reply({ content: `Successfully muted **${target.user.tag}** for ${durationString}. Reason: ${reason}`, flags: [MessageFlags.Ephemeral] });
 
-            // --- ADD THIS LOGGING LOGIC ---
-            const logRef = db.collection('guilds').doc(interaction.guildId!).collection('mod-logs');
+            // Critical Action 2: Log the action to Firebase.
+            const logRef = db.collection('guilds').doc(interaction.guildId).collection('mod-logs');
             await logRef.add({
                 action: 'mute',
                 targetId: target.id,
                 targetTag: target.user.tag,
                 moderatorId: interaction.user.id,
                 moderatorTag: interaction.user.tag,
-                duration: durationString, // Log the human-readable duration
+                duration: durationString,
                 reason: reason,
                 timestamp: Timestamp.now()
             });
-            // --- END OF LOGGING LOGIC ---
+
+            // If everything above succeeded, edit the deferred reply with the success message.
+            await interaction.editReply({ content: `Successfully muted **${target.user.tag}** for ${durationString}. Reason: ${reason}` });
 
         } catch (error) {
-            console.error('Error muting member:', error);
-            await interaction.reply({ content: 'An unexpected error occurred while trying to mute the member.', flags: [MessageFlags.Ephemeral] });
+            console.error('An error occurred during the mute process:', error);
+
+            // If any critical action failed, send a follow-up error message.
+            const errorMessage = { content: 'An unexpected error occurred. The user may have been muted, but the action could not be logged.' };
+            if (interaction.deferred || interaction.replied) {
+                await interaction.followUp(errorMessage);
+            } else {
+                await interaction.reply(errorMessage);
+            }
         }
     }
 };
