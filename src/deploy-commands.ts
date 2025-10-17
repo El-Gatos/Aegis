@@ -3,6 +3,13 @@ import config from './config';
 import fs from 'node:fs';
 import path from 'node:path';
 
+// --- SAFETY CHECK ---
+// We add this check to ensure the required credentials are provided before proceeding.
+// This satisfies TypeScript and prevents runtime errors.
+if (!config.token || !config.clientId) {
+    throw new Error("Missing required environment variables (BOT_TOKEN, CLIENT_ID). Please check your .env file.");
+}
+
 const commands = [];
 const commandsPath = path.join(__dirname, 'commands');
 

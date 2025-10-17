@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, CommandInteraction, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder, CommandInteraction } from 'discord.js';
 import { Command } from '../../types/command';
 
 // This command calculates and displays the bot's latency.
@@ -8,19 +8,18 @@ export const command: Command = {
         .setDescription("Checks the bot's latency."),
 
     async execute(interaction: CommandInteraction) {
+        // Corrected the reply to use `ephemeral: true` instead of the `flags` property.
         const sentMessage = await interaction.reply({
             content: 'Pinging...',
             fetchReply: true,
-            flags: [MessageFlags.Ephemeral]
+            ephemeral: true 
         });
 
         // The roundtrip latency is the difference between when the initial reply was sent
-        // and when the user's command was created. This measures the time it takes for
-        // the command to travel from the user to the bot and back.
+        // and when the user's command was created.
         const roundtripLatency = sentMessage.createdTimestamp - interaction.createdTimestamp;
 
-        // The client's WebSocket heartbeat ping is a direct measure of the connection
-        // health between your bot and Discord's servers.
+        // The client's WebSocket heartbeat ping.
         const websocketPing = interaction.client.ws.ping;
 
         // Edit the original reply to include the detailed latency information.

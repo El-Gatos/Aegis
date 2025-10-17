@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, CommandInteraction, PermissionFlagsBits, GuildMember } from 'discord.js';
+import { SlashCommandBuilder, ChatInputCommandInteraction, PermissionFlagsBits, GuildMember } from 'discord.js';
 import { Command } from '../../types/command';
 
 // This command allows a moderator to kick a member from the server.
@@ -7,7 +7,6 @@ export const command: Command = {
         .setName('kick')
         .setDescription('Select a member and kick them from the server.')
         .setDefaultMemberPermissions(PermissionFlagsBits.KickMembers)
-        .setDMPermission(false)
         .addUserOption(option =>
             option
                 .setName('target')
@@ -18,12 +17,13 @@ export const command: Command = {
                 .setName('reason')
                 .setDescription('The reason for kicking the member')),
 
-    async execute(interaction: CommandInteraction) {
+    async execute(interaction: ChatInputCommandInteraction) {
         if (!interaction.guild) {
             await interaction.reply({ content: 'This command can only be used in a server.', ephemeral: true });
             return;
         }
 
+        // with ChatInputCommandInteraction, .options is now correctly typed.
         const target = interaction.options.getMember('target') as GuildMember;
         const reason = interaction.options.getString('reason') ?? 'No reason provided';
 
@@ -42,7 +42,8 @@ export const command: Command = {
             return;
         }
 
-        if (target.roles.highest.position >= (interaction.member as GuildMember).roles.highest.position) {
+        // Make sure interaction.member is also treated as a GuildMember for role comparison
+        if (interaction.member instanceof GuildMember && target.roles.highest.position >= interaction.member.roles.highest.position) {
              await interaction.reply({ content: "You can't kick a member with an equal or higher role than you.", ephemeral: true });
              return;
         }
@@ -53,6 +54,7 @@ export const command: Command = {
         }
 
         try {
+            // Attempt to DM the user before kicking
             await target.send(`You have been kicked from **${interaction.guild.name}** for the following reason: ${reason}`);
         } catch (error) {
             console.warn(`Could not send DM to ${target.user.tag}. They may have DMs disabled.`);
@@ -68,6 +70,5 @@ export const command: Command = {
     }
 };
 
-// We export the command data for the deployment script.
 export const data = command.data;
 
