@@ -1,9 +1,11 @@
+// src/commands/moderation/kick.ts
+
 import { SlashCommandBuilder, ChatInputCommandInteraction, PermissionFlagsBits, GuildMember, MessageFlags } from 'discord.js';
 import { Command } from '../../types/command';
 import { db } from '../../utils/firebase';
-import { CollectionReference, Timestamp } from 'firebase-admin/firestore';
+import { Timestamp } from 'firebase-admin/firestore';
+import { sendModLog } from '../../utils/logUtils';
 
-// This command allows a moderator to kick a member from the server.
 export const command: Command = {
     data: new SlashCommandBuilder()
         .setName('kick')
@@ -25,60 +27,42 @@ export const command: Command = {
             return;
         }
 
-        // with ChatInputCommandInteraction, .options is now correctly typed.
         const target = interaction.options.getMember('target') as GuildMember;
         const reason = interaction.options.getString('reason') ?? 'No reason provided';
 
+        // --- Validation ---
         if (!target) {
             await interaction.reply({ content: "That user isn't in this server.", flags: MessageFlags.Ephemeral });
             return;
         }
-
         if (target.id === interaction.user.id) {
             await interaction.reply({ content: "You can't kick yourself!", flags: MessageFlags.Ephemeral });
             return;
         }
-
         if (target.id === interaction.client.user.id) {
             await interaction.reply({ content: "You can't kick me!", flags: MessageFlags.Ephemeral });
             return;
         }
-
-        // Make sure interaction.member is also treated as a GuildMember for role comparison
         if (interaction.member instanceof GuildMember && target.roles.highest.position >= interaction.member.roles.highest.position) {
             await interaction.reply({ content: "You can't kick a member with an equal or higher role than you.", flags: MessageFlags.Ephemeral });
             return;
         }
-
         if (!target.kickable) {
-            await interaction.reply({ content: "I don't have permission to kick that member. They may have a higher role than me.", flags: MessageFlags.Ephemeral });
+            await interaction.reply({ content: "I don't have permission to kick that member.", flags: MessageFlags.Ephemeral });
             return;
         }
 
+        // --- Execution ---
         try {
-            // Attempt to DM the user before kicking
             await target.send(`You have been kicked from **${interaction.guild.name}** for the following reason: ${reason}`);
         } catch (error) {
-            console.warn(`Could not send DM to ${target.user.tag}. They may have DMs disabled.`);
+            console.warn(`Could not send DM to ${target.user.tag}.`);
         }
 
-
-
         try {
-            // Non-critical: Attempt to DM the user
-            try {
-                await target.send(`You have been kicked from **${interaction.guild.name}** for the following reason: ${reason}`);
-            } catch (dmError) {
-                console.warn(`Could not send DM to ${target.user.tag}.`);
-            }
-
-            // Defer the reply to let Discord know we're working
             await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
-
-            // Critical Action 1: Kick the member
             await target.kick(reason);
 
-            // Critical Action 2: Log to Firebase
             const logRef = db.collection('guilds').doc(interaction.guildId!).collection('mod-logs');
             await logRef.add({
                 action: 'kick',
@@ -90,13 +74,19 @@ export const command: Command = {
                 timestamp: Timestamp.now()
             });
 
-            // If everything succeeded, confirm with the success message
             await interaction.editReply({ content: `Successfully kicked **${target.user.tag}** for: ${reason}` });
+
+            await sendModLog({
+                guild: interaction.guild,
+                moderator: interaction.user,
+                target: target.user,
+                action: 'Kick',
+                actionColor: 'Orange',
+                reason: reason
+            });
 
         } catch (error) {
             console.error('An error occurred during the kick process:', error);
-
-            // If any critical action failed, send an error message
             const errorMessage = { content: 'An unexpected error occurred. The user may have been kicked, but the action could not be logged.' };
             if (interaction.deferred || interaction.replied) {
                 await interaction.followUp(errorMessage);
@@ -108,4 +98,3 @@ export const command: Command = {
 };
 
 export const data = command.data;
-

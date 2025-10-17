@@ -3,14 +3,14 @@
 import { SlashCommandBuilder, PermissionFlagsBits, GuildMember, ChatInputCommandInteraction, MessageFlags } from 'discord.js';
 import { Command } from '../../types/command';
 import { db } from '../../utils/firebase';
-import { CollectionReference, Timestamp } from 'firebase-admin/firestore';
+import { Timestamp } from 'firebase-admin/firestore';
+import { sendModLog } from '../../utils/logUtils';
 
-// This command allows a moderator to ban a member from the server.
 export const command: Command = {
     data: new SlashCommandBuilder()
         .setName('ban')
         .setDescription('Select a member and ban them from the server.')
-        .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers) // Requires "Ban Members" permission
+        .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
         .addUserOption(option =>
             option
                 .setName('target')
@@ -45,22 +45,18 @@ export const command: Command = {
             await interaction.reply({ content: "That user isn't in this server.", flags: MessageFlags.Ephemeral });
             return;
         }
-
         if (target.id === interaction.user.id) {
             await interaction.reply({ content: "You can't ban yourself!", flags: MessageFlags.Ephemeral });
             return;
         }
-
         if (target.id === interaction.client.user.id) {
             await interaction.reply({ content: "You can't ban me!", flags: MessageFlags.Ephemeral });
             return;
         }
-
         if (target.roles.highest.position >= (interaction.member as GuildMember).roles.highest.position) {
             await interaction.reply({ content: "You can't ban a member with an equal or higher role than you.", flags: MessageFlags.Ephemeral });
             return;
         }
-
         if (!target.bannable) {
             await interaction.reply({ content: "I don't have permission to ban that member. They may have a higher role than me.", flags: MessageFlags.Ephemeral });
             return;
@@ -70,18 +66,18 @@ export const command: Command = {
         try {
             await target.send(`You have been banned from **${interaction.guild.name}** for the following reason: ${reason}`);
         } catch (error) {
-            console.warn(`Could not send DM to ${target.user.tag}. They may have DMs disabled.`);
+            console.warn(`Could not send DM to ${target.user.tag}.`);
         }
 
         try {
-            // Convert days to seconds for the new option
             const deleteMessageSeconds = deleteMessageDays * 24 * 60 * 60;
-
             await target.ban({
-                deleteMessageSeconds: deleteMessageSeconds, // Use the new option
+                deleteMessageSeconds: deleteMessageSeconds,
                 reason: reason
             });
+
             await interaction.reply({ content: `Successfully banned **${target.user.tag}** for: ${reason}` });
+
             const logRef = db.collection('guilds').doc(interaction.guildId!).collection('mod-logs');
             await logRef.add({
                 action: 'ban',
@@ -92,6 +88,16 @@ export const command: Command = {
                 reason: reason,
                 timestamp: Timestamp.now()
             });
+
+            await sendModLog({
+                guild: interaction.guild,
+                moderator: interaction.user,
+                target: target.user,
+                action: 'Ban',
+                actionColor: 'Red',
+                reason: reason
+            });
+
         } catch (error) {
             console.error('Error banning member:', error);
             await interaction.reply({ content: 'An unexpected error occurred while trying to ban the member.', flags: MessageFlags.Ephemeral });

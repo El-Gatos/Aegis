@@ -4,6 +4,7 @@ import { SlashCommandBuilder, PermissionFlagsBits, GuildMember, ChatInputCommand
 import { Command } from '../../types/command';
 import { db } from '../../utils/firebase';
 import { Timestamp } from 'firebase-admin/firestore';
+import { sendModLog } from '../../utils/logUtils';
 
 // This command allows a moderator to remove a timeout (unmute) from a member.
 export const command: Command = {
@@ -67,6 +68,15 @@ export const command: Command = {
                 moderatorTag: interaction.user.tag,
                 reason: reason,
                 timestamp: Timestamp.now()
+            });
+
+            await sendModLog({
+                guild: interaction.guild,
+                moderator: interaction.user,
+                target: target.user,
+                action: 'Unmute',
+                actionColor: 'Green',
+                reason: reason
             });
 
         } catch (error) {

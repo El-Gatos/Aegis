@@ -4,6 +4,7 @@ import { SlashCommandBuilder, PermissionFlagsBits, GuildMember, ChatInputCommand
 import { Command } from '../../types/command';
 import { db } from '../../utils/firebase';
 import { Timestamp } from 'firebase-admin/firestore';
+import { sendModLog } from '../../utils/logUtils'; // <-- Import the new utility
 
 export const command: Command = {
     data: new SlashCommandBuilder()
@@ -57,12 +58,23 @@ export const command: Command = {
                 timestamp: Timestamp.now()
             });
 
-            // Public confirmation message
+            // Public confirmation message in the channel where the command was run
             await interaction.reply({ content: `**${target.user.tag}** has been warned for: ${reason}` });
+
+            // --- Send the public log embed ---
+            await sendModLog({
+                guild: interaction.guild,
+                moderator: interaction.user,
+                target: target.user,
+                action: 'Warn',
+                actionColor: 'Yellow',
+                reason: reason
+            });
+            // --- End of public log ---
 
         } catch (error) {
             console.error('Error issuing warning:', error);
-            await interaction.reply({ content: 'An unexpected error occurred while trying to issue the warning.' });
+            await interaction.reply({ content: 'An unexpected error occurred while trying to issue the warning.', flags: [MessageFlags.Ephemeral] });
         }
     }
 };

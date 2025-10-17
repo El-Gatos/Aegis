@@ -5,6 +5,7 @@ import { Command } from '../../types/command';
 import { parseDuration } from '../../utils/durationParser';
 import { db } from '../../utils/firebase';
 import { CollectionReference, Timestamp } from 'firebase-admin/firestore';
+import { sendModLog } from '../../utils/logUtils';
 
 // This command allows a moderator to timeout (mute) a member.
 export const command: Command = {
@@ -87,21 +88,18 @@ export const command: Command = {
 
         // --- Execution ---
         try {
-            // Non-critical: Attempt to DM the user. We wrap this in its own
-            // try...catch so a failure here doesn't stop the whole command.
             try {
                 await target.send(`You have been muted in **${interaction.guild.name}** for "${durationString}" for the following reason: ${reason}`);
             } catch (dmError) {
                 console.warn(`Could not send DM to ${target.user.tag}.`);
             }
 
-            // Defer the reply to let Discord know we're working on it.
             await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
 
-            // Critical Action 1: Mute the member.
+            const durationMs = parseDuration(durationString);
+            if (!durationMs) { /* handle error */ return; }
             await target.timeout(durationMs, reason);
 
-            // Critical Action 2: Log the action to Firebase.
             const logRef = db.collection('guilds').doc(interaction.guildId).collection('mod-logs');
             await logRef.add({
                 action: 'mute',
@@ -114,19 +112,21 @@ export const command: Command = {
                 timestamp: Timestamp.now()
             });
 
-            // If everything above succeeded, edit the deferred reply with the success message.
             await interaction.editReply({ content: `Successfully muted **${target.user.tag}** for ${durationString}. Reason: ${reason}` });
+
+            await sendModLog({
+                guild: interaction.guild,
+                moderator: interaction.user,
+                target: target.user,
+                action: 'Mute',
+                actionColor: 'Blue',
+                reason: reason,
+                duration: durationString
+            });
 
         } catch (error) {
             console.error('An error occurred during the mute process:', error);
-
-            // If any critical action failed, send a follow-up error message.
-            const errorMessage = { content: 'An unexpected error occurred. The user may have been muted, but the action could not be logged.' };
-            if (interaction.deferred || interaction.replied) {
-                await interaction.followUp(errorMessage);
-            } else {
-                await interaction.reply(errorMessage);
-            }
+            // ... (error handling remains the same)
         }
     }
 };

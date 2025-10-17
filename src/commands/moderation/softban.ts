@@ -2,6 +2,7 @@
 
 import { SlashCommandBuilder, PermissionFlagsBits, GuildMember, ChatInputCommandInteraction, MessageFlags } from 'discord.js';
 import { Command } from '../../types/command';
+import { sendModLog } from '../../utils/logUtils';
 
 // This command bans and immediately unbans a member to delete their recent messages.
 export const command: Command = {
@@ -83,6 +84,15 @@ export const command: Command = {
             // Step 3: Edit the deferred reply to confirm the action
             await interaction.editReply({
                 content: `Successfully softbanned **${target.user.tag}** and deleted their messages from the last ${deleteMessageDays} day(s). They are free to rejoin.`
+            });
+
+            await sendModLog({
+                guild: interaction.guild,
+                moderator: interaction.user,
+                target: target.user,
+                action: 'Softban',
+                actionColor: 'Orange',
+                reason: reason
             });
 
         } catch (error) {
