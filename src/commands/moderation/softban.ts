@@ -55,8 +55,8 @@ export const command: Command = {
         }
 
         if (target.roles.highest.position >= (interaction.member as GuildMember).roles.highest.position) {
-             await interaction.reply({ content: "You can't softban a member with an equal or higher role than you.", flags: [MessageFlags.Ephemeral] });
-             return;
+            await interaction.reply({ content: "You can't softban a member with an equal or higher role than you.", flags: [MessageFlags.Ephemeral] });
+            return;
         }
 
         if (!target.bannable) {
@@ -66,26 +66,27 @@ export const command: Command = {
 
         // --- Execution ---
         try {
-            // Defer the reply to ensure we don't time out during the ban/unban process
             await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
+
+            // Convert days to seconds
+            const deleteMessageSeconds = deleteMessageDays * 24 * 60 * 60;
 
             // Step 1: Ban the user to trigger message deletion
             await interaction.guild.members.ban(target, {
-                deleteMessageDays: deleteMessageDays,
+                deleteMessageSeconds: deleteMessageSeconds, // Use the new option
                 reason: `Softban executed by ${interaction.user.tag} for: ${reason}`
             });
 
             // Step 2: Immediately unban the user
             await interaction.guild.members.unban(target.id, 'Softban: Automatic unban');
-            
+
             // Step 3: Edit the deferred reply to confirm the action
-            await interaction.editReply({ 
-                content: `Successfully softbanned **${target.user.tag}** and deleted their messages from the last ${deleteMessageDays} day(s). They are free to rejoin.` 
+            await interaction.editReply({
+                content: `Successfully softbanned **${target.user.tag}** and deleted their messages from the last ${deleteMessageDays} day(s). They are free to rejoin.`
             });
 
         } catch (error) {
             console.error('Error during softban:', error);
-            // If we already deferred, we need to edit the reply for the error message
             if (interaction.deferred) {
                 await interaction.editReply({ content: 'An unexpected error occurred while trying to softban the member.' });
             } else {

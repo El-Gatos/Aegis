@@ -38,7 +38,6 @@ export const command: Command = {
 
         const target = interaction.options.getMember('target') as GuildMember;
         const reason = interaction.options.getString('reason') ?? 'No reason provided';
-        // Get the message deletion choice, default to 0 days if not provided
         const deleteMessageDays = interaction.options.getInteger('delete_messages') ?? 0;
 
         // --- Validation Checks ---
@@ -62,7 +61,6 @@ export const command: Command = {
             return;
         }
 
-        // Check if the bot has permission to ban the member
         if (!target.bannable) {
             await interaction.reply({ content: "I don't have permission to ban that member. They may have a higher role than me.", flags: MessageFlags.Ephemeral });
             return;
@@ -70,27 +68,20 @@ export const command: Command = {
 
         // --- Execution ---
         try {
-            // Attempt to send a DM to the user before banning
             await target.send(`You have been banned from **${interaction.guild.name}** for the following reason: ${reason}`);
         } catch (error) {
             console.warn(`Could not send DM to ${target.user.tag}. They may have DMs disabled.`);
         }
 
         try {
-            // Non-critical: Attempt to DM the user
-            try {
-                await target.send(`You have been banned from **${interaction.guild.name}** for the following reason: ${reason}`);
-            } catch (dmError) {
-                console.warn(`Could not send DM to ${target.user.tag}.`);
-            }
+            // Convert days to seconds for the new option
+            const deleteMessageSeconds = deleteMessageDays * 24 * 60 * 60;
 
-            // Defer the reply to give us time to act
-            await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
-
-            // Critical Action 1: Ban the user
-            await target.ban({ deleteMessageDays: deleteMessageDays, reason: reason });
-
-            // Critical Action 2: Log to Firebase
+            await target.ban({
+                deleteMessageSeconds: deleteMessageSeconds, // Use the new option
+                reason: reason
+            });
+            await interaction.reply({ content: `Successfully banned **${target.user.tag}** for: ${reason}` });
             const logRef = db.collection('guilds').doc(interaction.guildId!).collection('mod-logs');
             await logRef.add({
                 action: 'ban',
@@ -101,21 +92,11 @@ export const command: Command = {
                 reason: reason,
                 timestamp: Timestamp.now()
             });
-
-            // If everything succeeded, edit the reply to confirm
-            await interaction.editReply({ content: `Successfully banned **${target.user.tag}** for: ${reason}` });
-
         } catch (error) {
-            console.error('An error occurred during the ban process:', error);
-            const errorMessage = { content: 'An unexpected error occurred. The user may have been banned, but the action could not be logged.' };
-            if (interaction.deferred || interaction.replied) {
-                await interaction.followUp(errorMessage);
-            } else {
-                await interaction.reply(errorMessage);
-            }
+            console.error('Error banning member:', error);
+            await interaction.reply({ content: 'An unexpected error occurred while trying to ban the member.', flags: MessageFlags.Ephemeral });
         }
     }
 };
 
-// We export the command data for the deployment script.
 export const data = command.data;

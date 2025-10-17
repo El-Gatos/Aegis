@@ -40,15 +40,13 @@ export const command: Command = {
             snapshot.forEach(doc => {
                 const data = doc.data();
                 const timestamp = (data.timestamp as Timestamp).toDate();
-                // Format for Discord timestamp: <t:unix_timestamp:R> (relative)
                 const discordTimestamp = `<t:${Math.floor(timestamp.getTime() / 1000)}:R>`;
 
-                description += `**Action:** ${data.action.toUpperCase()}\n`;
+                description += `**Action:** ${data.action.toUpperCase()}\n`; // <--- Change 'type' to 'action'
                 description += `**Reason:** ${data.reason}\n`;
                 description += `**Moderator:** ${data.moderatorTag}\n`;
                 description += `**Date:** ${discordTimestamp}\n\n`;
             });
-
             historyEmbed.setDescription(description);
 
             await interaction.editReply({ embeds: [historyEmbed] });
