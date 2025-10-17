@@ -1,13 +1,14 @@
-import { SlashCommandBuilder, ChatInputCommandInteraction } from 'discord.js';
+// src/types/command.ts
 
-// Defines the structure that every command file must follow.
+// Import the more specific types we need
+import { 
+    SlashCommandBuilder, 
+    ChatInputCommandInteraction, 
+    SlashCommandOptionsOnlyBuilder 
+} from 'discord.js';
+
 export interface Command {
-    // 'data' holds the command's definition. Using SlashCommandBuilder directly
-    // is more flexible and resolves the type mismatch errors.
-    data: SlashCommandBuilder;
-    
-    // 'execute' is the function that runs when the command is used.
-    // We use ChatInputCommandInteraction to ensure the '.options' property is available.
-    execute: (interaction: ChatInputCommandInteraction) => Promise<void>;
-}
 
+    data: SlashCommandBuilder | SlashCommandOptionsOnlyBuilder;
+        execute: (interaction: ChatInputCommandInteraction) => Promise<void>;
+}
