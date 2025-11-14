@@ -18,6 +18,31 @@ export const command: Command = {
                     option.setName('channel').setDescription('The text channel to send logs to').addChannelTypes(ChannelType.GuildText).setRequired(true)
                 )
         )
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('anti-invite')
+                .setDescription('Enable or disable automod for Discord invites.')
+                .addBooleanOption(option =>
+                    option.setName('enabled').setDescription('Set to true to block invites, false to allow.').setRequired(true))
+        )
+        // --- NEW ---
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('mass-mention')
+                .setDescription('Set the limit for mentions in a single message (0 to disable).')
+                .addIntegerOption(option =>
+                    option.setName('limit').setDescription('Max users to mention (e.g., 5)').setRequired(true).setMinValue(0))
+        )
+
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('autorole')
+                .setDescription('Set a role to automatically assign to new members.')
+                .addRoleOption(option =>
+                    option.setName('role')
+                        .setDescription('The role to assign. (Omit to disable autorole)')
+                )
+        )
         .addSubcommandGroup(group =>
             group
                 .setName('blacklist')
@@ -65,26 +90,12 @@ export const command: Command = {
 
         try {
             if (group === 'blacklist') {
-                // ... blacklist logic will go here
-            } else if (group === 'warn-escalation') {
-                // ... warn escalation logic will go here
-            } else {
-                // Handle top-level subcommands like log-channel
-                if (subcommand === 'log-channel') {
-                    const channel = interaction.options.getChannel('channel', true) as TextChannel;
-                    await guildDocRef.set({ settings: { logChannelId: channel.id } }, { merge: true });
-                    await interaction.editReply(`✅ Moderation log channel has been set to **#${channel.name}**.`);
-                }
-            }
-
-            // For simplicity, let's add the detailed logic for the new groups now
-            if (group === 'blacklist') {
                 const word = interaction.options.getString('word')?.toLowerCase();
                 if (subcommand === 'add' && word) {
                     await guildDocRef.set({ automod: { bannedWords: FieldValue.arrayUnion(word) } }, { merge: true });
                     await interaction.editReply(`✅ The word \`${word}\` has been added to the blacklist.`);
                 } else if (subcommand === 'remove' && word) {
-                    await guildDocRef.update({ 'automod.bannedWords': FieldValue.arrayRemove(word) });
+                    await guildDocRef.set({ automod: { bannedWords: FieldValue.arrayRemove(word) } }, { merge: true });
                     await interaction.editReply(`✅ The word \`${word}\` has been removed from the blacklist.`);
                 } else if (subcommand === 'list') {
                     const doc = await guildDocRef.get();
@@ -96,9 +107,7 @@ export const command: Command = {
                     const listEmbed = new EmbedBuilder().setColor('Blue').setTitle('Banned Words List').setDescription(words.map((w: string) => `\`${w}\``).join(', '));
                     await interaction.editReply({ embeds: [listEmbed] });
                 }
-            }
-
-            if (group === 'warn-escalation') {
+            } else if (group === 'warn-escalation') {
                 const warnings = interaction.options.getInteger('warnings');
                 if (subcommand === 'add') {
                     const action = interaction.options.getString('action', true);
@@ -108,7 +117,7 @@ export const command: Command = {
                     await guildDocRef.set({ automod: { escalationRules: { [warnings!]: rule } } }, { merge: true });
                     await interaction.editReply(`✅ Rule created: At **${warnings}** warnings, the user will be **${action}ed**.`);
                 } else if (subcommand === 'remove') {
-                    await guildDocRef.update({ [`automod.escalationRules.${warnings}`]: FieldValue.delete() });
+                    await guildDocRef.set({ automod: { escalationRules: { [warnings!]: FieldValue.delete() } } }, { merge: true });
                     await interaction.editReply(`✅ Escalation rule for **${warnings}** warnings has been removed.`);
                 } else if (subcommand === 'list') {
                     const doc = await guildDocRef.get();
@@ -130,6 +139,48 @@ export const command: Command = {
 
                     const listEmbed = new EmbedBuilder().setColor('Blue').setTitle('Warning Escalation Rules').setDescription(description);
                     await interaction.editReply({ embeds: [listEmbed] });
+                }
+            } else {
+                if (subcommand === 'log-channel') {
+                    const channel = interaction.options.getChannel('channel', true) as TextChannel;
+                    await guildDocRef.set({ settings: { logChannelId: channel.id } }, { merge: true });
+                    await interaction.editReply(`✅ Moderation log channel has been set to **#${channel.name}**.`);
+
+                } else if (subcommand === 'anti-invite') {
+                    const enabled = interaction.options.getBoolean('enabled', true);
+                    await guildDocRef.set({ automod: { blockInvites: enabled } }, { merge: true });
+                    await interaction.editReply(enabled ? '✅ Discord invites will now be blocked.' : '❌ Discord invites will now be allowed.');
+
+                } else if (subcommand === 'mass-mention') {
+                    const limit = interaction.options.getInteger('limit', true);
+                    await guildDocRef.set({ automod: { massMentionLimit: limit } }, { merge: true });
+                    if (limit === 0) {
+                        await interaction.editReply('✅ Mass mention protection has been disabled.');
+                    } else {
+                        await interaction.editReply(`✅ Messages with more than **${limit}** user mentions will be deleted.`);
+                    }
+                } else if (subcommand === 'autorole') {
+                    const role = interaction.options.getRole('role');
+
+                    if (role) {
+                        if (role.id === interaction.guild!.id) {
+                            await interaction.editReply({ content: 'You cannot set the autorole to @everyone.' });
+                            return;
+                        }
+
+                        const botMember = await interaction.guild!.members.fetch(interaction.client.user.id);
+                        if (role.position >= botMember.roles.highest.position) {
+                            await interaction.editReply({ content: `❌ I cannot assign the **${role.name}** role because it is higher than or equal to my highest role.` });
+                            return;
+                        }
+
+                        await guildDocRef.set({ settings: { autoRoleId: role.id } }, { merge: true });
+                        await interaction.editReply(`✅ New members will now automatically get the **${role.name}** role.`);
+                    } else {
+                        // No role was provided, so disable autorole
+                        await guildDocRef.set({ settings: { autoRoleId: null } }, { merge: true });
+                        await interaction.editReply(`✅ Autorole has been disabled. New members will not be assigned a role.`);
+                    }
                 }
             }
 

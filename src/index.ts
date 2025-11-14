@@ -3,9 +3,9 @@ import config from './config';
 import { Command } from './types/command';
 import fs from 'node:fs';
 import path from 'node:path';
-import { handleMessage } from './events/automod'; // <-- 1. IMPORT THE HANDLER
+import { handleMessage } from './events/automod';
+import { db } from './utils/firebase';
 
-// We are extending the base Client class to include a 'commands' property.
 class AegisClient extends Client {
     commands: Collection<string, Command> = new Collection();
 }
@@ -20,7 +20,6 @@ const client = new AegisClient({
 });
 
 // --- RECURSIVE COMMAND HANDLER ---
-// This new handler searches through subfolders to find and load all command files.
 const commandsPath = path.join(__dirname, 'commands');
 
 function loadCommands(directory: string) {
@@ -54,6 +53,37 @@ client.once(Events.ClientReady, (readyClient) => {
 
 client.on(Events.MessageCreate, async message => {
     await handleMessage(message);
+});
+
+client.on(Events.GuildMemberAdd, async member => {
+    // Don't assign roles to bots
+    if (member.user.bot) return;
+
+    try {
+        const guildDocRef = db.collection('guilds').doc(member.guild.id);
+        const doc = await guildDocRef.get();
+
+        const autoRoleId = doc.data()?.settings?.autoRoleId;
+        if (!autoRoleId) return; // No autorole configured
+
+        const role = member.guild.roles.cache.get(autoRoleId);
+        if (!role) {
+            console.warn(`[Autorole] Role ID ${autoRoleId} not found in guild ${member.guild.name}. Removing from settings.`);
+            await guildDocRef.set({ settings: { autoRoleId: null } }, { merge: true });
+            return;
+        }
+
+        // Check if bot can manage roles and role is assignable
+        if (member.guild.members.me?.permissions.has('ManageRoles') && role.position < member.guild.members.me.roles.highest.position) {
+            await member.roles.add(role, 'Automatic role assignment');
+        } else {
+            console.error(`[Autorole] Failed to assign role ${role.name} in ${member.guild.name}. Bot lacks permissions or role is too high.`);
+            // You could log this to the mod-log channel here as a system error
+        }
+
+    } catch (error) {
+        console.error(`[Autorole] Error assigning role in ${member.guild.name}:`, error);
+    }
 });
 
 client.on(Events.InteractionCreate, async interaction => {
