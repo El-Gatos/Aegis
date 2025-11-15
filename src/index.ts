@@ -8,10 +8,10 @@ import {
   Message,
   PermissionFlagsBits,
   TextChannel,
-  Guild, // Added this
-  GuildMember, // Added this
-  Interaction, // Added this
-  Role, // Added this
+  Guild,
+  GuildMember,
+  Interaction,
+  Role,
 } from "discord.js";
 import config from "./config";
 import { Command } from "./types/command";
@@ -33,6 +33,7 @@ const client = new AegisClient({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildMessageReactions,
+    GatewayIntentBits.DirectMessages,
   ],
   partials: [
     Partials.Message,
@@ -73,47 +74,36 @@ client.once(Events.ClientReady, (readyClient) => {
   console.log(`🚀 Aegis Guardian is online and ready to protect servers!`);
 });
 
-// --- CORRECTED MESSAGE CREATE LISTENER ---
 client.on(Events.MessageCreate, async (message) => {
-  // Always ignore other bots
   if (message.author.bot) return;
 
-  // --- Guild Message Router ---
   if (message.guild) {
-    // This is a message in a server, run automod
     await handleMessage(message);
-    return;
-  }
-
-  // --- DM Message Router ---
-  if (!message.guild) {
-    // This is a DM, check for recovery command
+  } else {
     if (message.content.startsWith("!recover")) {
-      // This now calls the one, global handleRecoveryDm function
       await handleRecoveryDm(message);
     }
-    return;
   }
 });
 
-// --- THE ONE, CORRECT RECOVERY FUNCTION ---
 async function handleRecoveryDm(message: Message) {
-  const token = message.content.substring(8).trim(); // Removes '!recover '
-  if (!token.includes(".")) {
+  const token = message.content.slice(9).trim();
+
+  if (!token || !token.includes(".")) {
     await message.author.send(
       "Invalid token format. It should look like `[GuildID].[SecretKey]`."
     );
     return;
   }
 
-  const [guildId, secretKey] = token.split(".");
+  const [guildId, secretKey] = token.split(".", 2);
+
   if (!guildId || !secretKey) {
     await message.author.send("Invalid token format.");
     return;
   }
 
   try {
-    // 1. Fetch the stored hash from Firestore
     const guildDocRef = db.collection("guilds").doc(guildId);
     const doc = await guildDocRef.get();
     const storedHash = doc.data()?.settings?.recoveryTokenHash;
@@ -125,7 +115,6 @@ async function handleRecoveryDm(message: Message) {
       return;
     }
 
-    // 2. Compare the provided key with the stored hash
     const isValid = await bcrypt.compare(secretKey, storedHash);
 
     if (!isValid) {
@@ -133,16 +122,15 @@ async function handleRecoveryDm(message: Message) {
       return;
     }
 
-    // --- TOKEN IS VALID ---
     await message.author.send(
       `Token accepted for server ${
         doc.data()?.name || guildId
       }. Granting access...`
     );
 
-    // 3. Fetch the guild and member
     const guild = await message.client.guilds.fetch(guildId);
     const member = await guild.members.fetch(message.author.id);
+
     if (!member) {
       await message.author.send(
         "I found the server, but you are not a member. Please join the server and try again."
@@ -150,13 +138,11 @@ async function handleRecoveryDm(message: Message) {
       return;
     }
 
-    // 4. Find or Create the "Recovery Admin" role
     let recoveryRole = guild.roles.cache.find(
       (r) => r.name === "Recovery Admin"
     );
 
     if (!recoveryRole) {
-      // Role doesn't exist, create it
       await message.author.send(
         'The "Recovery Admin" role was not found. I will try to create it...'
       );
@@ -173,7 +159,6 @@ async function handleRecoveryDm(message: Message) {
         recoveryRole = await guild.roles.create({
           name: "Recovery Admin",
           permissions: [PermissionFlagsBits.Administrator],
-          // Set position just below the bot's highest role
           position: botMember.roles.highest.position,
           reason: "Automatic creation for recovery command",
         });
@@ -189,7 +174,6 @@ async function handleRecoveryDm(message: Message) {
       }
     }
 
-    // 5. Check bot hierarchy
     if (recoveryRole.position >= guild.members.me!.roles.highest.position) {
       await message.author.send(
         `Error: I cannot assign the "Recovery Admin" role. It is higher than my highest role. Please fix its position in the server settings.`
@@ -197,15 +181,12 @@ async function handleRecoveryDm(message: Message) {
       return;
     }
 
-    // 6. Grant the role
     await member.roles.add(recoveryRole, "Used one-time recovery token");
 
-    // 7. --- CRITICAL: Invalidate the token ---
     await guildDocRef.update({
       "settings.recoveryTokenHash": FieldValue.delete(),
     });
 
-    // 8. Log the action to the guild's mod channel
     const logChannelId = doc.data()?.settings?.logChannelId;
     if (logChannelId) {
       const logChannel = (await guild.channels.fetch(
@@ -237,7 +218,6 @@ async function handleRecoveryDm(message: Message) {
   }
 }
 
-// --- OTHER LISTENERS ---
 client.on(Events.GuildMemberAdd, async (member) => {
   if (member.user.bot) return;
 
@@ -279,8 +259,6 @@ client.on(Events.GuildMemberAdd, async (member) => {
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
-  // --- Note: This only handles slash commands. ---
-  // --- Your reaction role code is in separate listeners below ---
   if (!interaction.isChatInputCommand()) return;
   const command = (interaction.client as AegisClient).commands.get(
     interaction.commandName
@@ -307,7 +285,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
 });
 
-// --- REACTION ROLE LISTENERS ---
 function getEmojiIdentifier(reaction: any): string | null {
   if (reaction.emoji.id) return reaction.emoji.id;
   if (reaction.emoji.name) return reaction.emoji.name;
