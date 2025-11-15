@@ -6,15 +6,21 @@ import { sendModLog } from '../utils/logUtils';
 import { Timestamp } from 'firebase-admin/firestore';
 
 // --- Banned Words Cache ---
-const guildSettingsCache = new Map<string, { bannedWords: string[] }>();
+interface GuildSettings {
+    bannedWords: string[];
+    blockInvites: boolean;
+    massMentionLimit: number;
+}
+const guildSettingsCache = new Map<string, GuildSettings>();
+
 async function fetchSettings(guildId: string) {
     if (guildSettingsCache.has(guildId)) {
         return guildSettingsCache.get(guildId);
     }
     const doc = await db.collection('guilds').doc(guildId).get();
-    const settings = doc.data()?.automod || { bannedWords: [] };
+    const settings = doc.data()?.automod || { bannedWords: [], blockInvites: false, massMentionLimit: 0 };
     guildSettingsCache.set(guildId, settings);
-    setTimeout(() => guildSettingsCache.delete(guildId), 5 * 60 * 1000);
+    setTimeout(() => guildSettingsCache.delete(guildId), 5 * 60 * 1000); // 5 min cache
     return settings;
 }
 
@@ -25,12 +31,52 @@ const SPAM_TIMEFRAME = 3000;
 const SPAM_MUTE_DURATION_MS = 5 * 60 * 1000;
 const SPAM_MUTE_DURATION_STRING = '5 minutes';
 
+// --- Helper Function for Deletion & Logging ---
+async function deleteAndWarn(message: Message, reason: string, logAction: string, logColor: 'DarkRed' | 'DarkOrange') {
+    if (!message.channel.isTextBased()) return;
+
+    try {
+        const author = message.author;
+        const guild = message.guild!;
+
+        await message.delete();
+        const channel = message.channel as TextChannel; // Cast here
+        const reply = await channel.send(`${author}, your message was removed. Reason: ${reason}`);
+        setTimeout(() => reply.delete().catch(console.error), 5000);
+
+        const logRef = db.collection('guilds').doc(guild.id).collection('mod-logs');
+        await logRef.add({
+            action: 'auto-warn',
+            targetId: author.id,
+            targetTag: author.tag,
+            moderatorId: message.client.user.id,
+            moderatorTag: message.client.user.tag,
+            reason: reason,
+            timestamp: Timestamp.now()
+        });
+
+        await sendModLog({
+            guild: guild,
+            moderator: message.client.user,
+            target: author,
+            action: logAction,
+            actionColor: logColor,
+            reason: reason
+        });
+    } catch (error) {
+        console.error(`Error during ${logAction} action:`, error);
+    }
+}
+
+
 export async function handleMessage(message: Message) {
     if (message.author.bot || !message.guild || !message.member) return;
     if (message.member.permissions.has(PermissionFlagsBits.ManageMessages)) return;
 
-    // --- Anti-Spam Logic ---
+    const settings = await fetchSettings(message.guild.id);
     const userKey = `${message.guild.id}-${message.author.id}`;
+
+    // --- Anti-Spam Logic ---
     const now = Date.now();
     const userData = userSpamTracker.get(userKey) || { msgCount: 0, lastMsgTime: now };
 
@@ -43,13 +89,11 @@ export async function handleMessage(message: Message) {
     userSpamTracker.set(userKey, userData);
 
     if (userData.msgCount >= SPAM_THRESHOLD) {
-        // We still check if the channel is text-based as a good practice.
         if (!message.channel.isTextBased()) return;
         try {
             if (!message.member.isCommunicationDisabled() && message.member.moderatable) {
                 await message.member.timeout(SPAM_MUTE_DURATION_MS, 'Automatic spam detection.');
 
-                // FORCE THE FIX: Explicitly cast the channel type here.
                 const channel = message.channel as TextChannel;
                 const reply = await channel.send(`${message.author} has been automatically muted for spamming.`);
                 setTimeout(() => reply.delete().catch(console.error), 5000);
@@ -68,47 +112,48 @@ export async function handleMessage(message: Message) {
             console.error("Error during anti-spam mute:", error);
         }
         userSpamTracker.delete(userKey);
-        return;
+        return; // Stop processing other automod checks if user is spamming
     }
 
+    // --- NEW: Anti-Invite Logic ---
+    if (settings?.blockInvites) {
+        const inviteRegex = /(discord\.(gg|com)\/(invite\/)?[a-zA-Z0-9]{2,25})/i;
+        if (inviteRegex.test(message.content)) {
+            await deleteAndWarn(message, 'Discord invites are not allowed here.', 'Auto-Warn (Invite Link)', 'DarkOrange');
+            return; // Stop processing if invite is found
+        }
+    }
+
+    // --- NEW: Anti-Mass-Mention Logic ---
+    const mentionLimit = settings?.massMentionLimit || 0;
+    if (mentionLimit > 0) {
+        // We only count unique user mentions, not roles or @everyone
+        const mentionCount = message.mentions.users.size;
+        if (mentionCount > mentionLimit) {
+            await deleteAndWarn(message, `Mass mentions are not allowed (Limit: ${mentionLimit}).`, 'Auto-Warn (Mass Mention)', 'DarkOrange');
+            return;
+        }
+    }
+
+
     // --- Banned Words Logic ---
-    const settings = await fetchSettings(message.guild.id);
     const bannedWords = settings?.bannedWords || [];
     if (bannedWords.length === 0) return;
 
-    const messageContent = message.content.toLowerCase();
-    const foundWord = bannedWords.find((word: string) => messageContent.includes(word));
+    let foundWord: string | undefined;
+    for (const word of bannedWords) {
+        // Use regex with word boundaries (\b) to prevent partial matches (e.g., "ass" in "grass")
+        // We escape the word just in case it has special regex characters
+        const escapedWord = word.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+        const regex = new RegExp(`\\b${escapedWord}\\b`, 'i'); // 'i' for case-insensitive
 
-    if (foundWord) {
-        if (!message.channel.isTextBased()) return;
-        try {
-            await message.delete();
-            const channel = message.channel as TextChannel;
-            const reply = await channel.send(`${message.author}, that word is not allowed here.`);
-            setTimeout(() => reply.delete().catch(console.error), 5000);
-
-            const logRef = db.collection('guilds').doc(message.guild.id).collection('mod-logs');
-            await logRef.add({
-                action: 'auto-warn',
-                targetId: message.author.id,
-                targetTag: message.author.tag,
-                moderatorId: message.client.user.id,
-                moderatorTag: message.client.user.tag,
-                reason: `Automatic detection of blacklisted word: "${foundWord}"`,
-                timestamp: Timestamp.now()
-            });
-
-            await sendModLog({
-                guild: message.guild,
-                moderator: message.client.user,
-                target: message.author,
-                action: 'Auto-Warn (Banned Word)',
-                actionColor: 'DarkRed',
-                reason: `Contained the word: \`${foundWord}\``
-            });
-        } catch (error) {
-            console.error("Error during banned word action:", error);
+        if (regex.test(message.content)) {
+            foundWord = word;
+            break;
         }
     }
-}
 
+    if (foundWord) {
+        await deleteAndWarn(message, `Automatic detection of blacklisted word: "${foundWord}"`, 'Auto-Warn (Banned Word)', 'DarkRed');
+    }
+}

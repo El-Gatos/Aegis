@@ -1,9 +1,6 @@
-// src/commands/moderation/purge.ts
-
 import { SlashCommandBuilder, PermissionFlagsBits, ChatInputCommandInteraction, MessageFlags, TextChannel, User } from 'discord.js';
 import { Command } from '../../types/command';
 
-// This command allows a moderator to bulk delete messages in a channel.
 export const command: Command = {
     data: new SlashCommandBuilder()
         .setName('purge')
@@ -41,7 +38,7 @@ export const command: Command = {
             if (target) {
                 messagesToDelete = messages.filter(m => m.author.id === target.id);
             }
-            
+
             if (messagesToDelete.size === 0) {
                 await interaction.editReply({ content: `No messages found to delete.` });
                 return;
@@ -49,7 +46,7 @@ export const command: Command = {
 
             // --- Execution ---
             const deletedMessages = await interaction.channel.bulkDelete(messagesToDelete, true);
-            
+
             let confirmationMessage = `Successfully deleted ${deletedMessages.size} message(s).`;
             if (target) {
                 confirmationMessage += ` from **${target.tag}**.`;

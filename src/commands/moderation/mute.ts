@@ -1,18 +1,17 @@
 // src/commands/moderation/mute.ts
 
-import { SlashCommandBuilder, PermissionFlagsBits, GuildMember, ChatInputCommandInteraction, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder, PermissionFlagsBits, GuildMember, ChatInputCommandInteraction, MessageFlags, EmbedBuilder } from 'discord.js';
 import { Command } from '../../types/command';
 import { parseDuration } from '../../utils/durationParser';
 import { db } from '../../utils/firebase';
-import { CollectionReference, Timestamp } from 'firebase-admin/firestore';
+import { Timestamp } from 'firebase-admin/firestore';
 import { sendModLog } from '../../utils/logUtils';
 
-// This command allows a moderator to timeout (mute) a member.
 export const command: Command = {
     data: new SlashCommandBuilder()
         .setName('mute')
         .setDescription('Times out a member, preventing them from talking.')
-        .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers) // Requires "Moderate Members" permission
+        .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
         .addUserOption(option =>
             option
                 .setName('target')
@@ -29,7 +28,7 @@ export const command: Command = {
                 .setDescription('The reason for muting the member')),
 
     async execute(interaction: ChatInputCommandInteraction) {
-        if (!interaction.guild || !interaction.guildId) { // Added guildId check for safety
+        if (!interaction.guild || !interaction.guildId) {
             await interaction.reply({ content: 'This command can only be used in a server.', flags: [MessageFlags.Ephemeral] });
             return;
         }
@@ -54,7 +53,6 @@ export const command: Command = {
             return;
         }
 
-        // Check if the member is already timed out
         if (target.isCommunicationDisabled()) {
             await interaction.reply({ content: 'This member is already muted.', flags: [MessageFlags.Ephemeral] });
             return;
@@ -86,6 +84,12 @@ export const command: Command = {
             return;
         }
 
+        const muteEmbed = new EmbedBuilder()
+            .setTitle('User has been muted')
+            .setColor('Blue')
+            .setDescription(`User: **${target.user.tag}** has been muted in **${interaction.guild.name}** for "${durationString}" for the following reason:\n\n${reason}`)
+            .setTimestamp();
+
         // --- Execution ---
         try {
             try {
@@ -112,7 +116,7 @@ export const command: Command = {
                 timestamp: Timestamp.now()
             });
 
-            await interaction.editReply({ content: `Successfully muted **${target.user.tag}** for ${durationString}. Reason: ${reason}` });
+            await interaction.editReply({ content: `**${target.user.tag}** has been muted for ${durationString}. Reason: ${reason}`, embeds: [muteEmbed] });
 
             await sendModLog({
                 guild: interaction.guild,
@@ -126,7 +130,7 @@ export const command: Command = {
 
         } catch (error) {
             console.error('An error occurred during the mute process:', error);
-            // ... (error handling remains the same)
+            await interaction.editReply({ content: 'An unexpected error occurred while trying to mute the member.' });
         }
     }
 };

@@ -1,15 +1,12 @@
-// src/commands/moderation/softban.ts
-
 import { SlashCommandBuilder, PermissionFlagsBits, GuildMember, ChatInputCommandInteraction, MessageFlags } from 'discord.js';
 import { Command } from '../../types/command';
 import { sendModLog } from '../../utils/logUtils';
 
-// This command bans and immediately unbans a member to delete their recent messages.
 export const command: Command = {
     data: new SlashCommandBuilder()
         .setName('softban')
         .setDescription('Kicks a member and deletes their recent messages.')
-        .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers) // This action requires ban permissions
+        .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
         .addUserOption(option =>
             option
                 .setName('target')

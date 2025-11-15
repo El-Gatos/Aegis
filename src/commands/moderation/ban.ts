@@ -1,6 +1,4 @@
-// src/commands/moderation/ban.ts
-
-import { SlashCommandBuilder, PermissionFlagsBits, GuildMember, ChatInputCommandInteraction, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder, PermissionFlagsBits, GuildMember, ChatInputCommandInteraction, MessageFlags, EmbedBuilder } from 'discord.js';
 import { Command } from '../../types/command';
 import { db } from '../../utils/firebase';
 import { Timestamp } from 'firebase-admin/firestore';
@@ -62,6 +60,11 @@ export const command: Command = {
             return;
         }
 
+        const banEmbed = new EmbedBuilder()
+            .setTitle('User has been banned')
+            .setColor('Red')
+            .setDescription(`User: **${target.user.tag}** has been banned from **${interaction.guild.name}** for the following reason:\n\n${reason}`)
+            .setTimestamp();
         // --- Execution ---
         try {
             await target.send(`You have been banned from **${interaction.guild.name}** for the following reason: ${reason}`);
@@ -76,7 +79,7 @@ export const command: Command = {
                 reason: reason
             });
 
-            await interaction.reply({ content: `Successfully banned **${target.user.tag}** for: ${reason}` });
+            await interaction.reply({ content: `**${target.user.tag}** has been banned.`, embeds: [banEmbed] });
 
             const logRef = db.collection('guilds').doc(interaction.guildId!).collection('mod-logs');
             await logRef.add({

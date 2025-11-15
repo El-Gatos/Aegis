@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, PermissionFlagsBits, ChatInputCommandInteraction, MessageFlags, EmbedBuilder, User } from 'discord.js';
+import { SlashCommandBuilder, PermissionFlagsBits, ChatInputCommandInteraction, MessageFlags, EmbedBuilder, InteractionContextType } from 'discord.js';
 import { Command } from '../../types/command';
 import { db } from '../../utils/firebase';
 import { Timestamp } from 'firebase-admin/firestore';
@@ -8,7 +8,7 @@ export const command: Command = {
         .setName('modhistory')
         .setDescription("Checks a user's moderation history in this server.")
         .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
-        .setDMPermission(false)
+        .setContexts(InteractionContextType.Guild)
         .addUserOption(option =>
             option
                 .setName('target')

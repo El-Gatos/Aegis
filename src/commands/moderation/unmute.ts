@@ -1,17 +1,14 @@
-// src/commands/moderation/unmute.ts
-
 import { SlashCommandBuilder, PermissionFlagsBits, GuildMember, ChatInputCommandInteraction, MessageFlags } from 'discord.js';
 import { Command } from '../../types/command';
 import { db } from '../../utils/firebase';
 import { Timestamp } from 'firebase-admin/firestore';
 import { sendModLog } from '../../utils/logUtils';
 
-// This command allows a moderator to remove a timeout (unmute) from a member.
 export const command: Command = {
     data: new SlashCommandBuilder()
         .setName('unmute')
         .setDescription('Removes the timeout from a member.')
-        .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers) // Requires "Moderate Members" permission
+        .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
         .addUserOption(option =>
             option
                 .setName('target')
@@ -55,7 +52,7 @@ export const command: Command = {
 
         // --- Execution ---
         try {
-            await target.timeout(null, reason); // Setting timeout to null removes it
+            await target.timeout(null, reason);
             await interaction.reply({ content: `Successfully unmuted **${target.user.tag}**. Reason: ${reason}`, flags: [MessageFlags.Ephemeral] });
 
             // --- Firestore Logging ---

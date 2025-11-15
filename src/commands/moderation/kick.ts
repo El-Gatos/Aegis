@@ -1,6 +1,4 @@
-// src/commands/moderation/kick.ts
-
-import { SlashCommandBuilder, ChatInputCommandInteraction, PermissionFlagsBits, GuildMember, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder, ChatInputCommandInteraction, PermissionFlagsBits, GuildMember, MessageFlags, EmbedBuilder } from 'discord.js';
 import { Command } from '../../types/command';
 import { db } from '../../utils/firebase';
 import { Timestamp } from 'firebase-admin/firestore';
@@ -52,6 +50,12 @@ export const command: Command = {
             return;
         }
 
+        const kickEmbed = new EmbedBuilder()
+            .setTitle('User has been kicked')
+            .setColor('Red')
+            .setDescription(`User: **${target.user.tag}** has been kicked from **${interaction.guild.name}** for the following reason:\n\n${reason}`)
+            .setTimestamp();
+
         // --- Execution ---
         try {
             await target.send(`You have been kicked from **${interaction.guild.name}** for the following reason: ${reason}`);
@@ -74,7 +78,7 @@ export const command: Command = {
                 timestamp: Timestamp.now()
             });
 
-            await interaction.editReply({ content: `Successfully kicked **${target.user.tag}** for: ${reason}` });
+            await interaction.editReply({ content: `**${target.user.tag}** has been kicked.`, embeds: [kickEmbed] });
 
             await sendModLog({
                 guild: interaction.guild,

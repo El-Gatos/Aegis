@@ -50,12 +50,9 @@ export const command: Command = {
                 return;
             }
 
-            // Get the specific document to delete
-            // The case number is 1-indexed, so we subtract 1 for the array index
             const warningToDeleteDoc = snapshot.docs[caseNumber - 1];
             const warningData = warningToDeleteDoc.data();
 
-            // Perform the delete operation
             await warningToDeleteDoc.ref.delete();
 
             await interaction.editReply({
