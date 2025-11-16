@@ -7,7 +7,6 @@ import {
   ButtonBuilder,
   ButtonStyle,
   ActionRowBuilder,
-  ChannelType,
   TextChannel,
   InteractionContextType,
 } from "discord.js";
@@ -97,17 +96,21 @@ export const command: Command = {
           embeds: [verifyEmbed],
           components: [row],
         });
-        await interaction.reply({
+        await interaction.editReply({
           content: `✅ Verification message has been posted. I will grant the **${verifiedRole.name}** role.`,
-          flags: [MessageFlags.Ephemeral],
         });
       } catch (error) {
         console.error("Failed to post verification message:", error);
-        await interaction.reply({
+        const errorReply = {
           content:
             "I failed to post the message. Do I have 'Send Messages' and 'Embed Links' permissions in this channel?",
-          flags: [MessageFlags.Ephemeral],
-        });
+          ephemeral: true,
+        };
+        if (interaction.deferred || interaction.replied) {
+          await interaction.followUp(errorReply);
+        } else {
+          await interaction.reply(errorReply);
+        }
       }
     }
   },
