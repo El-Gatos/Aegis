@@ -12,7 +12,15 @@ import {
   GuildMember,
   Interaction,
   Role,
+  User,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  ActionRowBuilder,
+  CacheType,
+  MessageFlags,
 } from "discord.js";
+
 import config from "./config";
 import { Command } from "./types/command";
 import * as bcrypt from "bcrypt";
@@ -45,6 +53,7 @@ const client = new AegisClient({
 });
 
 const commandsPath = path.join(__dirname, "commands");
+const verificationCodes = new Map();
 
 function loadCommands(directory: string) {
   const files = fs.readdirSync(directory);
@@ -76,7 +85,6 @@ client.once(Events.ClientReady, (readyClient) => {
 
 client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot) return;
-
   if (message.guild) {
     await handleMessage(message);
   } else {
@@ -88,7 +96,6 @@ client.on(Events.MessageCreate, async (message) => {
 
 async function handleRecoveryDm(message: Message) {
   const token = message.content.slice(9).trim();
-
   if (!token || !token.includes(".")) {
     await message.author.send(
       "Invalid token format. It should look like `[GuildID].[SecretKey]`."
@@ -97,7 +104,6 @@ async function handleRecoveryDm(message: Message) {
   }
 
   const [guildId, secretKey] = token.split(".", 2);
-
   if (!guildId || !secretKey) {
     await message.author.send("Invalid token format.");
     return;
@@ -116,7 +122,6 @@ async function handleRecoveryDm(message: Message) {
     }
 
     const isValid = await bcrypt.compare(secretKey, storedHash);
-
     if (!isValid) {
       await message.author.send("Invalid or expired token.");
       return;
@@ -130,7 +135,6 @@ async function handleRecoveryDm(message: Message) {
 
     const guild = await message.client.guilds.fetch(guildId);
     const member = await guild.members.fetch(message.author.id);
-
     if (!member) {
       await message.author.send(
         "I found the server, but you are not a member. Please join the server and try again."
@@ -141,12 +145,10 @@ async function handleRecoveryDm(message: Message) {
     let recoveryRole = guild.roles.cache.find(
       (r) => r.name === "Recovery Admin"
     );
-
     if (!recoveryRole) {
       await message.author.send(
         'The "Recovery Admin" role was not found. I will try to create it...'
       );
-
       const botMember = guild.members.me!;
       if (!botMember.permissions.has("ManageRoles")) {
         await message.author.send(
@@ -182,7 +184,6 @@ async function handleRecoveryDm(message: Message) {
     }
 
     await member.roles.add(recoveryRole, "Used one-time recovery token");
-
     await guildDocRef.update({
       "settings.recoveryTokenHash": FieldValue.delete(),
     });
@@ -220,11 +221,9 @@ async function handleRecoveryDm(message: Message) {
 
 client.on(Events.GuildMemberAdd, async (member) => {
   if (member.user.bot) return;
-
   try {
     const guildDocRef = db.collection("guilds").doc(member.guild.id);
     const doc = await guildDocRef.get();
-
     const autoRoleId = doc.data()?.settings?.autoRoleId;
     if (!autoRoleId) return;
 
@@ -259,11 +258,117 @@ client.on(Events.GuildMemberAdd, async (member) => {
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
+  if (interaction.isButton() && interaction.customId === "start_verification") {
+    if (!interaction.guildId) return;
+
+    try {
+      const code = Math.random().toString().substring(2, 7);
+      verificationCodes.set(interaction.user.id, code);
+
+      const modal = new ModalBuilder()
+        .setCustomId("verification_modal")
+        .setTitle("Are you human?");
+
+      const codeDisplay = new TextInputBuilder()
+        .setCustomId("verification_code_display")
+        .setLabel("Please type this exact code below:")
+        .setValue(code)
+        .setStyle(TextInputStyle.Short)
+        .setRequired(false);
+
+      const codeInput = new TextInputBuilder()
+        .setCustomId("verification_code_input")
+        .setLabel("Enter the code here")
+        .setPlaceholder("e.g., 12345")
+        .setStyle(TextInputStyle.Short)
+        .setMinLength(5)
+        .setMaxLength(5)
+        .setRequired(true);
+
+      const firstRow = new ActionRowBuilder<TextInputBuilder>().addComponents(
+        codeDisplay
+      );
+      const secondRow = new ActionRowBuilder<TextInputBuilder>().addComponents(
+        codeInput
+      );
+
+      modal.addComponents(firstRow, secondRow);
+      await interaction.showModal(modal);
+    } catch (error) {
+      console.error("Failed to show verification modal:", error);
+      await interaction.reply({
+        content: "An error occurred. Please try again.",
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+    return;
+  }
+
+  if (
+    interaction.isModalSubmit() &&
+    interaction.customId === "verification_modal"
+  ) {
+    if (!interaction.guild || !interaction.guildId || !interaction.member) {
+      return;
+    }
+
+    const submittedCode = interaction.fields.getTextInputValue(
+      "verification_code_input"
+    );
+    const correctCode = verificationCodes.get(interaction.user.id);
+
+    if (submittedCode === correctCode) {
+      verificationCodes.delete(interaction.user.id);
+
+      const doc = await db.collection("guilds").doc(interaction.guildId).get();
+      const roleId = doc.data()?.settings?.verificationRoleId;
+
+      if (!roleId) {
+        await interaction.reply({
+          content:
+            "Verification passed, but the admin has not set a role. Please contact a moderator.",
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
+      const role = interaction.guild.roles.cache.get(roleId);
+      if (!role) {
+        await interaction.reply({
+          content:
+            "Verification passed, but the configured role no longer exists. Please contact a moderator.",
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
+      try {
+        const member = interaction.member as GuildMember;
+        await member.roles.add(role, "Passed CAPTCHA verification");
+        await interaction.reply({
+          content: `✅ **Verification Successful!** You now have access to the server.`,
+          flags: MessageFlags.Ephemeral,
+        });
+      } catch (error) {
+        console.error("Failed to assign verification role:", error);
+        await interaction.reply({
+          content:
+            "Verification passed, but I failed to assign the role. My permissions might be too low. Please contact a moderator.",
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+    } else {
+      await interaction.reply({
+        content: `❌ **Verification Failed.** The code was incorrect. Please click the button to try again.`,
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+    return;
+  }
   if (!interaction.isChatInputCommand()) return;
   const command = (interaction.client as AegisClient).commands.get(
     interaction.commandName
   );
-
   if (!command) {
     console.error(`No command matching ${interaction.commandName} was found.`);
     return;
@@ -273,6 +378,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
     await command.execute(interaction);
   } catch (error) {
     console.error(error);
+
+    if (error && typeof error === "object" && "code" in error) {
+      const discordErrorCode = error.code as number;
+      if (discordErrorCode === 10062 || discordErrorCode === 40060) {
+        console.log(
+          `[INFO] Suppressing reply for a dead (10062) or duplicate (40060) interaction.`
+        );
+        return;
+      }
+    }
+
     const errorMessage = {
       content: "There was an error while executing this command!",
       ephemeral: true,
@@ -302,7 +418,6 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
 
   const docId = `${reaction.message.guild.id}-${reaction.message.id}-${emoji}`;
   const ruleDoc = await db.collection("reaction_roles").doc(docId).get();
-
   if (!ruleDoc.exists) return;
 
   try {
@@ -339,7 +454,6 @@ client.on(Events.MessageReactionRemove, async (reaction, user) => {
 
   const docId = `${reaction.message.guild.id}-${reaction.message.id}-${emoji}`;
   const ruleDoc = await db.collection("reaction_roles").doc(docId).get();
-
   if (!ruleDoc.exists) return;
 
   try {
