@@ -298,7 +298,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       console.error("Failed to show verification modal:", error);
       await interaction.reply({
         content: "An error occurred. Please try again.",
-        flags: MessageFlags.Ephemeral,
+        ephemeral: true,
       });
     }
     return;
@@ -327,7 +327,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await interaction.reply({
           content:
             "Verification passed, but the admin has not set a role. Please contact a moderator.",
-          flags: MessageFlags.Ephemeral,
+          ephemeral: true,
         });
         return;
       }
@@ -337,7 +337,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await interaction.reply({
           content:
             "Verification passed, but the configured role no longer exists. Please contact a moderator.",
-          flags: MessageFlags.Ephemeral,
+          ephemeral: true,
         });
         return;
       }
@@ -347,20 +347,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await member.roles.add(role, "Passed CAPTCHA verification");
         await interaction.reply({
           content: `✅ **Verification Successful!** You now have access to the server.`,
-          flags: MessageFlags.Ephemeral,
+          ephemeral: true,
         });
       } catch (error) {
         console.error("Failed to assign verification role:", error);
         await interaction.reply({
           content:
             "Verification passed, but I failed to assign the role. My permissions might be too low. Please contact a moderator.",
-          flags: MessageFlags.Ephemeral,
+          ephemeral: true,
         });
       }
     } else {
       await interaction.reply({
         content: `❌ **Verification Failed.** The code was incorrect. Please click the button to try again.`,
-        flags: MessageFlags.Ephemeral,
+        ephemeral: true,
       });
     }
     return;
@@ -391,7 +391,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     const errorMessage = {
       content: "There was an error while executing this command!",
-      flags: MessageFlags.Ephemeral,
+      ephemeral: true,
     };
     if (interaction.replied || interaction.deferred) {
       await interaction.followUp(errorMessage);
