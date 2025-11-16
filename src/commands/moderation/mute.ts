@@ -143,10 +143,6 @@ export const command: Command = {
 
       await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
 
-      const durationMs = parseDuration(durationString);
-      if (!durationMs) {
-        /* handle error */ return;
-      }
       await target.timeout(durationMs, reason);
 
       const logRef = db
